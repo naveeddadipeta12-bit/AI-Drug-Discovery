@@ -1,63 +1,40 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from rdkit import Chem
 from rdkit.Chem import Descriptors
-
 import numpy as np
 import joblib
 import requests
-
 from urllib.parse import quote
-
 from dotenv import load_dotenv
 from google import genai
-
 import os
+import zipfile
 
 
-# =========================================================
-# LOAD ENVIRONMENT VARIABLES
-# =========================================================
+# ============================================================
+# ENVIRONMENT / GEMINI
+# ============================================================
 
 load_dotenv("backend/.env")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-
-# =========================================================
-# GEMINI CLIENT
-# =========================================================
-
 gemini_client = None
 
 if GEMINI_API_KEY:
-
     try:
-
-        gemini_client = genai.Client(
-            api_key=GEMINI_API_KEY
-        )
-
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
         print("Gemini API key loaded successfully!")
-
     except Exception as e:
-
-        print(
-            "Gemini client error:",
-            e
-        )
-
+        print("Gemini client error:", e)
 else:
-
-    print(
-        "Gemini API key not found."
-    )
+    print("Gemini API key not found.")
 
 
-# =========================================================
+# ============================================================
 # FASTAPI APPLICATION
-# =========================================================
+# ============================================================
 
 app = FastAPI(
     title="AI Drug Discovery API",
@@ -66,68 +43,94 @@ app = FastAPI(
 )
 
 
-# =========================================================
+# ============================================================
 # CORS
-# =========================================================
+# ============================================================
 
 app.add_middleware(
     CORSMiddleware,
-
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174"
     ],
-
     allow_credentials=True,
-
     allow_methods=["*"],
-
     allow_headers=["*"]
 )
 
 
-# =========================================================
-# LOAD MACHINE LEARNING MODEL
-# =========================================================
+# ============================================================
+# MACHINE LEARNING MODEL
+# ============================================================
+
+BASE_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..")
+)
 
 MODEL_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "..",
+    BASE_DIR,
     "ml",
     "random_forest_model.pkl"
 )
 
-MODEL_PATH = os.path.abspath(
-    MODEL_PATH
+MODEL_ZIP_PATH = os.path.join(
+    BASE_DIR,
+    "ml",
+    "random_forest_model.zip"
 )
 
 
-model = None
+# ------------------------------------------------------------
+# Extract compressed model if necessary
+# ------------------------------------------------------------
 
+if not os.path.exists(MODEL_PATH):
+
+    if os.path.exists(MODEL_ZIP_PATH):
+
+        try:
+            print("Compressed ML model found.")
+            print("Extracting ML model...")
+
+            with zipfile.ZipFile(MODEL_ZIP_PATH, "r") as zip_ref:
+
+                zip_ref.extractall(
+                    os.path.join(BASE_DIR, "ml")
+                )
+
+            print("ML model extracted successfully!")
+
+        except Exception as e:
+
+            print("Model extraction error:", e)
+
+    else:
+
+        print("ML model ZIP file not found.")
+
+
+# ------------------------------------------------------------
+# Load model
+# ------------------------------------------------------------
+
+model = None
 
 try:
 
-    model = joblib.load(
-        MODEL_PATH
-    )
+    model = joblib.load(MODEL_PATH)
 
-    print(
-        "Machine learning model loaded successfully!"
-    )
+    print("Machine learning model loaded successfully!")
 
 except Exception as e:
 
-    print(
-        "Model loading error:",
-        e
-    )
+    print("Model loading error:", e)
 
 
-# =========================================================
-# ROOT ENDPOINT
-# =========================================================
+# ============================================================
+# HOME ENDPOINT
+# ============================================================
 
 @app.get("/")
 def home():
@@ -138,15 +141,11 @@ def home():
     }
 
 
-# =========================================================
-# COMPOUND NAME FUNCTION
-# =========================================================
+# ============================================================
+# COMPOUND NAME IDENTIFICATION
+# ============================================================
 
 def get_compound_name(smiles):
-
-    # -----------------------------------------------------
-    # LOCAL KNOWN DRUG DATABASE
-    # -----------------------------------------------------
 
     known_drugs = {
 
@@ -182,29 +181,21 @@ def get_compound_name(smiles):
     }
 
 
-    # -----------------------------------------------------
-    # CANONICALIZE INPUT SMILES
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Local database of known compounds
+    # --------------------------------------------------------
 
     try:
 
-        mol = Chem.MolFromSmiles(
-            smiles
-        )
+        mol = Chem.MolFromSmiles(smiles)
 
         if mol is not None:
 
-            canonical_smiles = Chem.MolToSmiles(
-                mol
-            )
-
-            # Check all known drugs
+            canonical_smiles = Chem.MolToSmiles(mol)
 
             for known_smiles, name in known_drugs.items():
 
-                known_mol = Chem.MolFromSmiles(
-                    known_smiles
-                )
+                known_mol = Chem.MolFromSmiles(known_smiles)
 
                 if known_mol is None:
                     continue
@@ -230,9 +221,9 @@ def get_compound_name(smiles):
         )
 
 
-    # -----------------------------------------------------
-    # PUBCHEM BACKUP
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # PubChem fallback
+    # --------------------------------------------------------
 
     try:
 
@@ -267,17 +258,10 @@ def get_compound_name(smiles):
 
         data = response.json()
 
-
         information = (
             data
-            .get(
-                "InformationList",
-                {}
-            )
-            .get(
-                "Information",
-                []
-            )
+            .get("InformationList", {})
+            .get("Information", [])
         )
 
 
@@ -296,8 +280,6 @@ def get_compound_name(smiles):
 
             return "Compound name not found"
 
-
-        # Prefer common drug names
 
         preferred_names = [
 
@@ -325,8 +307,6 @@ def get_compound_name(smiles):
                     return synonym
 
 
-        # Otherwise return first available synonym
-
         for synonym in synonyms:
 
             if synonym.strip():
@@ -347,9 +327,9 @@ def get_compound_name(smiles):
         return "Compound name not found"
 
 
-# =========================================================
+# ============================================================
 # PREDICTION ENDPOINT
-# =========================================================
+# ============================================================
 
 @app.post("/predict")
 def predict(smiles_data: dict):
@@ -359,10 +339,6 @@ def predict(smiles_data: dict):
         ""
     ).strip()
 
-
-    # -----------------------------------------------------
-    # CHECK INPUT
-    # -----------------------------------------------------
 
     if not smiles:
 
@@ -376,13 +352,7 @@ def predict(smiles_data: dict):
         }
 
 
-    # -----------------------------------------------------
-    # CONVERT SMILES TO MOLECULE
-    # -----------------------------------------------------
-
-    mol = Chem.MolFromSmiles(
-        smiles
-    )
+    mol = Chem.MolFromSmiles(smiles)
 
 
     if mol is None:
@@ -397,18 +367,14 @@ def predict(smiles_data: dict):
         }
 
 
-    # -----------------------------------------------------
-    # GET COMPOUND NAME
-    # -----------------------------------------------------
-
     compound_name = get_compound_name(
         smiles
     )
 
 
-    # -----------------------------------------------------
-    # CALCULATE MOLECULAR PROPERTIES
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Molecular descriptors
+    # --------------------------------------------------------
 
     molecular_weight = Descriptors.MolWt(
         mol
@@ -435,9 +401,9 @@ def predict(smiles_data: dict):
     )
 
 
-    # -----------------------------------------------------
-    # CHECK MODEL
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Check model
+    # --------------------------------------------------------
 
     if model is None:
 
@@ -451,46 +417,43 @@ def predict(smiles_data: dict):
         }
 
 
-    # -----------------------------------------------------
-    # CREATE FEATURES
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Model input
+    # --------------------------------------------------------
 
-    features = np.array([[
+    features = np.array([
 
-        molecular_weight,
+        [
 
-        logp,
+            molecular_weight,
+            logp,
+            hbd,
+            hba,
+            rotatable_bonds,
+            tpsa
 
-        hbd,
+        ]
 
-        hba,
-
-        rotatable_bonds,
-
-        tpsa
-
-    ]])
+    ])
 
 
-    # -----------------------------------------------------
-    # MACHINE LEARNING PREDICTION
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Prediction
+    # --------------------------------------------------------
 
     predicted_pIC50 = model.predict(
         features
     )[0]
 
 
-    # Convert pIC50 to IC50 in nM
-
-    estimated_ic50 = 10 ** (
-        9 - predicted_pIC50
+    estimated_ic50 = (
+        10 ** (9 - predicted_pIC50)
     )
 
 
-    # -----------------------------------------------------
-    # RETURN RESULT
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Return result
+    # --------------------------------------------------------
 
     return {
 
@@ -544,9 +507,9 @@ def predict(smiles_data: dict):
     }
 
 
-# =========================================================
+# ============================================================
 # GEMINI EXPLANATION ENDPOINT
-# =========================================================
+# ============================================================
 
 @app.post("/explain")
 def explain(data: dict):
@@ -598,14 +561,14 @@ def explain(data: dict):
         }
 
 
-    # -----------------------------------------------------
-    # COMPOUND INFORMATION
-    # -----------------------------------------------------
-
     compound_name = get_compound_name(
         smiles
     )
 
+
+    # --------------------------------------------------------
+    # Molecular properties
+    # --------------------------------------------------------
 
     molecular_weight = Descriptors.MolWt(
         mol
@@ -632,25 +595,24 @@ def explain(data: dict):
     )
 
 
-    # -----------------------------------------------------
-    # MODEL PREDICTION
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Prediction
+    # --------------------------------------------------------
 
-    features = np.array([[
+    features = np.array([
 
-        molecular_weight,
+        [
 
-        logp,
+            molecular_weight,
+            logp,
+            hbd,
+            hba,
+            rotatable_bonds,
+            tpsa
 
-        hbd,
+        ]
 
-        hba,
-
-        rotatable_bonds,
-
-        tpsa
-
-    ]])
+    ])
 
 
     predicted_pIC50 = model.predict(
@@ -658,22 +620,23 @@ def explain(data: dict):
     )[0]
 
 
-    estimated_ic50 = 10 ** (
-        9 - predicted_pIC50
+    estimated_ic50 = (
+        10 ** (9 - predicted_pIC50)
     )
 
 
-    # -----------------------------------------------------
-    # GEMINI PROMPT
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Gemini prompt
+    # --------------------------------------------------------
 
     prompt = f"""
 
-You are an educational AI assistant for a
-bioinformatics drug discovery project.
+You are an educational AI assistant
+for a bioinformatics drug discovery project.
 
-Explain the following computational drug activity prediction
-in simple scientific language suitable for a B.Tech Bioinformatics
+Explain the following computational drug
+activity prediction in simple scientific
+language suitable for a B.Tech Bioinformatics
 student.
 
 Compound name:
@@ -706,26 +669,37 @@ Predicted pIC50:
 Estimated IC50:
 {estimated_ic50:.3f} nM
 
+
 Explain:
 
 1. What the compound is, if its name is known.
-2. What the molecular properties mean.
-3. What the predicted pIC50 means.
-4. What the estimated IC50 means.
-5. Whether the predicted value indicates relatively stronger
-   or weaker activity within this model.
-6. Important limitations of this computational prediction.
 
-Clearly state that this is a machine-learning prediction,
-not experimental evidence or a clinical recommendation.
+2. What the molecular properties mean.
+
+3. What the predicted pIC50 means.
+
+4. What the estimated IC50 means.
+
+5. Whether the predicted value indicates
+   relatively stronger or weaker activity
+   within this model.
+
+6. Important limitations of this
+   computational prediction.
+
+
+Clearly state that this is a machine-learning
+prediction, not experimental evidence or a
+clinical recommendation.
 
 Keep the explanation easy to understand.
+
 """
 
 
-    # -----------------------------------------------------
-    # CALL GEMINI
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Gemini request
+    # --------------------------------------------------------
 
     try:
 
@@ -754,6 +728,7 @@ Keep the explanation easy to understand.
             "Gemini error:",
             e
         )
+
 
         return {
 
