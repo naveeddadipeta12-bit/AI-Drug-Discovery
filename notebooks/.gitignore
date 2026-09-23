@@ -1,0 +1,39 @@
+# Python virtual environment
+venv/
+
+# Environment variables and API keys
+.env
+*.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Node.js
+node_modules/
+
+# React/Vite build files
+frontend/dist/
+
+# VS Code
+.vscode/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+# Python cache
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+
+# Large raw bioactivity files
+data/bioactivity_raw.csv
+data/bioactivity_raw.csv.zip
+data/bioactivity_extracted/
