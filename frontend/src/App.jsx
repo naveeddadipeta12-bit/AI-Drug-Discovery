@@ -27,7 +27,7 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/predict",
+        "https://ai-drug-discovery-xqjq.onrender.com/predict",
         {
           method: "POST",
           headers: {
@@ -41,25 +41,30 @@ function App() {
 
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
+      console.log("Prediction response:", data);
+
+      if (!response.ok) {
         setError(
-          data.error || "Prediction failed. Please try again."
+          data.error ||
+            data.detail ||
+            `Prediction failed. Server returned ${response.status}.`
         );
         return;
       }
 
+    
+
       setResult(data);
     } catch (err) {
-      console.error(err);
+      console.error("Prediction connection error:", err);
 
       setError(
-        "Unable to connect to the backend. Please make sure FastAPI is running."
+        "Unable to connect to the backend. Please make sure the Render backend is running."
       );
     } finally {
       setLoading(false);
     }
   };
-
 
   // =====================================================
   // GEMINI EXPLANATION
@@ -76,7 +81,7 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/explain",
+        "https://ai-drug-discovery-xqjq.onrender.com/explain",
         {
           method: "POST",
           headers: {
@@ -90,9 +95,21 @@ function App() {
 
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
+      console.log("Explanation response:", data);
+
+      if (!response.ok) {
         setError(
           data.error ||
+            data.detail ||
+            `Unable to generate AI explanation. Server returned ${response.status}.`
+        );
+        return;
+      }
+
+      if (!data.success) {
+        setError(
+          data.error ||
+            data.detail ||
             "Unable to generate AI explanation."
         );
         return;
@@ -100,7 +117,7 @@ function App() {
 
       setExplanation(data.explanation);
     } catch (err) {
-      console.error(err);
+      console.error("Explanation connection error:", err);
 
       setError(
         "Unable to connect to the Gemini explanation service."
@@ -109,7 +126,6 @@ function App() {
       setExplanationLoading(false);
     }
   };
-
 
   // =====================================================
   // MAIN UI
@@ -176,7 +192,6 @@ function App() {
           ================================================= */}
 
       <main className="container">
-
 
         {/* =================================================
             INPUT CARD
@@ -251,7 +266,6 @@ function App() {
           )}
 
         </section>
-
 
 
         {/* =================================================
@@ -429,7 +443,6 @@ function App() {
 
           </section>
         )}
-
 
 
         {/* =================================================
